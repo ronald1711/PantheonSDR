@@ -13,7 +13,7 @@
 NovaSdr is een moderne, stabiele, snelle en goed onderhoudbare crossplatform SDR-applicatie voor desktop, tablet en mobiel. Het combineert het beste van drie bestaande SDR-codebases in één nieuwe, toekomstbestendige architectuur.
 
 **Primaire doelen:**
-- Brick2 SDR hardware support via Protocol 2 én Protocol 1
+- Brick2 SDR hardware support via OpenHPSDR Protocol 2 én Protocol 1 
 - Modern, gebruiksvriendelijk interface (HamDash-geïnspireerde UX)
 - Multi-device RX2: tweede SDR-device als auxiliary receiver
 - Plugin-ecosysteem voor digitale modes, DX cluster, logging, CAT
