@@ -42,6 +42,7 @@
 // Zeus is distributed WITHOUT ANY WARRANTY; see the GNU General Public
 // License for details.
 
+import React from 'react';
 import type { ComponentType } from 'react';
 import { HeroPanel } from './panels/HeroPanel';
 import { VfoPanel } from './panels/VfoPanel';
@@ -300,6 +301,24 @@ export const PANELS: Record<string, PanelDef> = {
     tags: ['analog', 'meter', 'smeter', 's-meter', 'signal', 'rx', 'tx', 'power', 'swr', 'needle'],
     component: AnalogMeterPanel,
     headerless: true,
+  },
+
+  // ── PantheonSDR multi-device panels ────────────────────────────────────────
+  multidevice: {
+    id: 'multidevice',
+    name: 'RX2 Spectrum',
+    category: 'rx',
+    tags: ['rx2', 'auxiliary', 'multi', 'sdrplay', 'pluto', 'second', 'spectrum', 'waterfall'],
+    component: React.lazy(() =>
+      import('../components/session/MultiDevicePanel').then((m) => ({ default: m.MultiDevicePanel }))),
+  },
+  devicemanager: {
+    id: 'devicemanager',
+    name: 'Devices',
+    category: 'system',
+    tags: ['device', 'discovery', 'attach', 'session', 'sdrplay', 'pluto', 'brick2', 'rx2'],
+    component: React.lazy(() =>
+      import('../components/session/DeviceManagerPanel').then((m) => ({ default: m.DeviceManagerPanel }))),
   },
 };
 

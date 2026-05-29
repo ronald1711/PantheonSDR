@@ -176,6 +176,11 @@ const AUDIO_MASTER_BYPASS_BYTES = 2;
 export const MSG_TYPE_CW_ENGINE_STATUS = 0x30;
 const CW_ENGINE_STATUS_HEADER_BYTES = 9;
 
+// PantheonSDR multi-device frame types
+export const MSG_TYPE_RX2_DISPLAY  = 0x40; // aux panadapter pixels
+export const MSG_TYPE_RX2_METERS   = 0x41; // aux RX meters
+export const MSG_TYPE_SESSION_STATE = 0x42; // session JSON snapshot
+
 // Shared by startRealtime / sendMicPcm. Single WS instance at a time; writes
 // are no-ops when the socket isn't open.
 let activeWs: WebSocket | null = null;
@@ -538,6 +543,44 @@ export function startRealtime(path = '/ws'): () => void {
             // localMicArmed (only local interaction does — see issue #346).
             if (txStore.localMicArmed) txStore.setLocalMicArmed(false);
           }
+          return;
+        }
+        // ── PantheonSDR multi-device frames ────────────────────────────────
+        if (peekType === MSG_TYPE_RX2_DISPLAY) {
+          if (ev.data.byteLength < 6) return; // type(1) + devIndex(1) + ≥1 float
+          const dv = new DataView(ev.data);
+          const devIndex = dv.getUint8(1);
+          const floatCount = (ev.data.byteLength - 2) / 4;
+          const pixels = new Float32Array(ev.data, 2, floatCount);
+          const { setPixels } = await import('../state/rx2-display-store')
+            .then((m) => m.useRx2DisplayStore.getState());
+          setPixels(devIndex, pixels.slice()); // copy — buffer may be reused
+          return;
+        }
+        if (peekType === MSG_TYPE_RX2_METERS) {
+          if (ev.data.byteLength < 14) return; // type(1)+index(1)+3×f32
+          const dv = new DataView(ev.data);
+          const devIndex = dv.getUint8(1);
+          const signalDbm  = dv.getFloat32(2,  true);
+          const adcPeakDb  = dv.getFloat32(6,  true);
+          const agcGainDb  = dv.getFloat32(10, true);
+          const { setMeters } = await import('../state/rx2-display-store')
+            .then((m) => m.useRx2DisplayStore.getState());
+          setMeters(devIndex, { signalDbm, adcPeakDb, agcGainDb });
+          return;
+        }
+        if (peekType === MSG_TYPE_SESSION_STATE) {
+          try {
+            const json = new TextDecoder().decode(new Uint8Array(ev.data, 1));
+            const dto = JSON.parse(json) as {
+              primary: unknown; auxiliaries: unknown[]; isMoxActive: boolean };
+            const { setSessionFromServer } = await import('../state/session-store')
+              .then((m) => m.useSessionStore.getState());
+            setSessionFromServer(
+              dto.primary as import('../state/session-store').AttachedDevice | null,
+              dto.auxiliaries as import('../state/session-store').AttachedDevice[],
+              dto.isMoxActive);
+          } catch { /* malformed frame — ignore */ }
           return;
         }
         warnOnce(
