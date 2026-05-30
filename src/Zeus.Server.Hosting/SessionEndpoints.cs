@@ -23,12 +23,83 @@ internal static class SessionEndpoints
 
         // POST /api/session/discover
         // Trigger a new discovery sweep across all hardware families.
+        // OpenHPSDR (Brick2 / HL2 / ANAN) is discovered via Zeus's own P1/P2
+        // discovery services here, because PantheonSDR.Devices is deliberately
+        // decoupled from the Zeus protocol assemblies. SDRplay + PlutoSDR are
+        // discovered via the aggregator (native libs required).
         app.MapPost("/api/session/discover", async (
-            DiscoveryAggregatorService discovery,
+            Zeus.Protocol1.Discovery.IRadioDiscovery p1disc,
+            Zeus.Protocol2.Discovery.IRadioDiscovery p2disc,
+            DiscoveryAggregatorService aggregator,
+            DeviceRegistry registry,
+            ILoggerFactory loggerFactory,
             CancellationToken ct) =>
         {
-            var found = await discovery.DiscoverAllAsync(ct: ct);
-            return Results.Ok(found.Select(ToDiscoveredDto).ToList());
+            var log = loggerFactory.CreateLogger("SessionDiscover");
+            var diagnostics = new List<string>();
+            var timeout = TimeSpan.FromSeconds(2);
+
+            // ── OpenHPSDR Protocol 2 (Brick2, ANAN G2, Saturn) ─────────────────
+            try
+            {
+                var p2 = await p2disc.DiscoverAsync(timeout, ct);
+                foreach (var r in p2)
+                {
+                    var id = $"hpsdr-p2:{r.Ip}";
+                    var name = $"{r.Board} (P2 fw {r.FirmwareVersion}) @ {r.Ip}";
+                    registry.RegisterDiscovered(
+                        new PantheonSDR.Devices.OpenHpsdr.OpenHpsdrP2Transceiver(id, name));
+                }
+                diagnostics.Add($"OpenHPSDR P2: {p2.Count} found");
+                log.LogInformation("Session discover: OpenHPSDR P2 found {Count}", p2.Count);
+            }
+            catch (Exception ex)
+            {
+                diagnostics.Add($"OpenHPSDR P2: error ({ex.Message})");
+                log.LogWarning(ex, "Session discover: OpenHPSDR P2 failed");
+            }
+
+            // ── OpenHPSDR Protocol 1 (Hermes-Lite 2, ANAN classic) ─────────────
+            try
+            {
+                var p1 = await p1disc.DiscoverAsync(timeout, ct);
+                foreach (var r in p1)
+                {
+                    var id = $"hpsdr-p1:{r.Ip}";
+                    var name = $"{r.Board} (P1 fw {r.FirmwareVersion}) @ {r.Ip}";
+                    registry.RegisterDiscovered(
+                        new PantheonSDR.Devices.OpenHpsdr.OpenHpsdrP1Transceiver(id, name));
+                }
+                diagnostics.Add($"OpenHPSDR P1: {p1.Count} found");
+                log.LogInformation("Session discover: OpenHPSDR P1 found {Count}", p1.Count);
+            }
+            catch (Exception ex)
+            {
+                diagnostics.Add($"OpenHPSDR P1: error ({ex.Message})");
+                log.LogWarning(ex, "Session discover: OpenHPSDR P1 failed");
+            }
+
+            // ── SDRplay + PlutoSDR (native libs required) ──────────────────────
+            var auxOptions = new DiscoveryOptions
+            {
+                IncludeOpenHpsdr = false, // handled above
+                IncludeSdrPlay   = true,
+                IncludePlutoSdr  = true,
+            };
+            await aggregator.DiscoverAllAsync(auxOptions, ct);
+
+            var sdrplayCount = registry.DiscoveredDevices.Count(d => d.DeviceId.StartsWith("sdrplay:"));
+            var plutoCount   = registry.DiscoveredDevices.Count(d => d.DeviceId.StartsWith("pluto:"));
+            diagnostics.Add($"SDRplay: {sdrplayCount} found" +
+                (sdrplayCount == 0 ? " (install SDRplay API 3.x + connect device)" : ""));
+            diagnostics.Add($"PlutoSDR: {plutoCount} found" +
+                (plutoCount == 0 ? " (install libiio + connect device)" : ""));
+
+            var devices = registry.DiscoveredDevices.Select(ToDiscoveredDto).ToList();
+            log.LogInformation("Session discover complete: {Total} device(s). {Diag}",
+                devices.Count, string.Join("; ", diagnostics));
+
+            return Results.Ok(new { devices, diagnostics });
         });
 
         // ── Session state ─────────────────────────────────────────────────────

@@ -44,6 +44,7 @@ export function DeviceManagerPanel() {
     setDiscovered, setDiscovering } = useSessionStore();
   const [attaching, setAttaching] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [diagnostics, setDiagnostics] = useState<string[]>([]);
 
   const attachedIds = new Set([
     primary?.deviceId,
@@ -56,8 +57,10 @@ export function DeviceManagerPanel() {
     try {
       const r = await apiPost('/session/discover');
       if (!r.ok) throw new Error(await r.text());
-      const devices: DiscoveredDevice[] = await r.json();
-      setDiscovered(devices);
+      const body = await r.json() as
+        { devices: DiscoveredDevice[]; diagnostics: string[] };
+      setDiscovered(body.devices ?? []);
+      setDiagnostics(body.diagnostics ?? []);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -107,6 +110,18 @@ export function DeviceManagerPanel() {
 
       {error && (
         <div className="text-xs text-red-400 bg-red-900/30 p-2 rounded">{error}</div>
+      )}
+
+      {/* Discovery diagnostics — shows which backends were checked */}
+      {diagnostics.length > 0 && (
+        <details className="text-xs bg-slate-800/50 rounded p-2">
+          <summary className="cursor-pointer text-slate-400">Discovery report</summary>
+          <ul className="mt-1 space-y-0.5">
+            {diagnostics.map((d, i) => (
+              <li key={i} className="font-mono text-slate-300">{d}</li>
+            ))}
+          </ul>
+        </details>
       )}
 
       {/* Active session */}
