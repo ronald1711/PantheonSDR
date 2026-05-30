@@ -52,6 +52,8 @@ import { hasActiveFrameConsumers, useDisplayStore } from '../state/display-store
 import { useTxStore } from '../state/tx-store';
 import { useBandPlanStore } from '../state/bandPlan';
 import { useRxMetersStore } from '../state/rx-meters-store';
+import { useRx2DisplayStore } from '../state/rx2-display-store';
+import { useSessionStore, type AttachedDevice } from '../state/session-store';
 import { warnOnce } from '../util/logger';
 import { wsUrl as buildWsUrl } from '../serverUrl';
 
@@ -552,9 +554,7 @@ export function startRealtime(path = '/ws'): () => void {
           const devIndex = dv.getUint8(1);
           const floatCount = (ev.data.byteLength - 2) / 4;
           const pixels = new Float32Array(ev.data, 2, floatCount);
-          const { setPixels } = await import('../state/rx2-display-store')
-            .then((m) => m.useRx2DisplayStore.getState());
-          setPixels(devIndex, pixels.slice()); // copy — buffer may be reused
+          useRx2DisplayStore.getState().setPixels(devIndex, pixels.slice()); // copy — buffer may be reused
           return;
         }
         if (peekType === MSG_TYPE_RX2_METERS) {
@@ -564,22 +564,18 @@ export function startRealtime(path = '/ws'): () => void {
           const signalDbm  = dv.getFloat32(2,  true);
           const adcPeakDb  = dv.getFloat32(6,  true);
           const agcGainDb  = dv.getFloat32(10, true);
-          const { setMeters } = await import('../state/rx2-display-store')
-            .then((m) => m.useRx2DisplayStore.getState());
-          setMeters(devIndex, { signalDbm, adcPeakDb, agcGainDb });
+          useRx2DisplayStore.getState().setMeters(devIndex, { signalDbm, adcPeakDb, agcGainDb });
           return;
         }
         if (peekType === MSG_TYPE_SESSION_STATE) {
           try {
             const json = new TextDecoder().decode(new Uint8Array(ev.data, 1));
             const dto = JSON.parse(json) as {
-              primary: unknown; auxiliaries: unknown[]; isMoxActive: boolean };
-            const { setSessionFromServer } = await import('../state/session-store')
-              .then((m) => m.useSessionStore.getState());
-            setSessionFromServer(
-              dto.primary as import('../state/session-store').AttachedDevice | null,
-              dto.auxiliaries as import('../state/session-store').AttachedDevice[],
-              dto.isMoxActive);
+              primary: AttachedDevice | null;
+              auxiliaries: AttachedDevice[];
+              isMoxActive: boolean };
+            useSessionStore.getState().setSessionFromServer(
+              dto.primary, dto.auxiliaries, dto.isMoxActive);
           } catch { /* malformed frame — ignore */ }
           return;
         }

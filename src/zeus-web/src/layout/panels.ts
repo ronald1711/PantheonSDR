@@ -307,7 +307,7 @@ export const PANELS: Record<string, PanelDef> = {
   multidevice: {
     id: 'multidevice',
     name: 'RX2 Spectrum',
-    category: 'rx',
+    category: 'spectrum',
     tags: ['rx2', 'auxiliary', 'multi', 'sdrplay', 'pluto', 'second', 'spectrum', 'waterfall'],
     component: React.lazy(() =>
       import('../components/session/MultiDevicePanel').then((m) => ({ default: m.MultiDevicePanel }))),
@@ -315,7 +315,7 @@ export const PANELS: Record<string, PanelDef> = {
   devicemanager: {
     id: 'devicemanager',
     name: 'Devices',
-    category: 'system',
+    category: 'tools',
     tags: ['device', 'discovery', 'attach', 'session', 'sdrplay', 'pluto', 'brick2', 'rx2'],
     component: React.lazy(() =>
       import('../components/session/DeviceManagerPanel').then((m) => ({ default: m.DeviceManagerPanel }))),

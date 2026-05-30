@@ -1,6 +1,6 @@
 // PantheonSDR — device discovery and session management panel.
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useSessionStore, type DiscoveredDevice } from '../../state/session-store';
 
 const API = (path: string) => `/api${path}`;

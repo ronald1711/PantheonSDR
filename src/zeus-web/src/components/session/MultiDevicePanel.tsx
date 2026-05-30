@@ -1,7 +1,7 @@
 // PantheonSDR — multi-device spectrum display.
 // Shows primary panadapter (existing) + one canvas per aux device side by side.
 
-import React, { useRef, useEffect } from 'react';
+import { useRef, useEffect } from 'react';
 import { useSessionStore } from '../../state/session-store';
 import { useRx2DisplayStore } from '../../state/rx2-display-store';
 import { AuxiliaryReceiverPanel } from './AuxiliaryReceiverPanel';
@@ -18,9 +18,9 @@ const PALETTE = (() => {
   return p;
 })();
 
-function dbToColour(db: number) {
+function dbToColour(db: number): number {
   const normalised = Math.max(0, Math.min(1, (db + 140) / 90)); // -140…-50 dBm
-  return PALETTE[Math.round(normalised * 255)];
+  return PALETTE[Math.round(normalised * 255)] ?? 0xff000000;
 }
 
 interface SpectrumCanvasProps {
