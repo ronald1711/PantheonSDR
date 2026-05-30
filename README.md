@@ -1,4 +1,4 @@
-# PantheonSDR
+# PantheonSDR – ALPHA release (testing fase, not working)
 
 > **Next-generation crossplatform SDR transceiver application for amateur radio operators**
 
