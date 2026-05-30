@@ -309,6 +309,46 @@ public sealed class Protocol2Client : IDisposable, IAsyncDisposable
     public long HiPriPacketCount => Interlocked.Read(ref _hiPriPackets);
     private long _hiPriPackets;
 
+    /// <summary>
+    /// Find the local IPv4 address of the network interface whose subnet
+    /// contains <paramref name="radioIp"/>. Returns null when no interface is
+    /// on the radio's subnet (caller falls back to IPAddress.Any). This pins
+    /// command traffic to the correct NIC on multi-homed Windows hosts so the
+    /// radio streams IQ back to an address the host is actually listening on.
+    /// </summary>
+    internal static IPAddress? FindLocalAddressForSubnet(IPAddress radioIp)
+    {
+        if (radioIp.AddressFamily != AddressFamily.InterNetwork) return null;
+        var radioBytes = radioIp.GetAddressBytes();
+
+        foreach (var iface in NetworkInterface.GetAllNetworkInterfaces())
+        {
+            if (iface.OperationalStatus != OperationalStatus.Up) continue;
+            if (iface.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
+
+            foreach (var ua in iface.GetIPProperties().UnicastAddresses)
+            {
+                if (ua.Address.AddressFamily != AddressFamily.InterNetwork) continue;
+                var mask = ua.IPv4Mask;
+                if (mask is null || mask.Equals(IPAddress.Any)) continue;
+
+                var localBytes = ua.Address.GetAddressBytes();
+                var maskBytes = mask.GetAddressBytes();
+                bool sameSubnet = true;
+                for (int i = 0; i < 4; i++)
+                {
+                    if ((localBytes[i] & maskBytes[i]) != (radioBytes[i] & maskBytes[i]))
+                    {
+                        sameSubnet = false;
+                        break;
+                    }
+                }
+                if (sameSubnet) return ua.Address;
+            }
+        }
+        return null;
+    }
+
     public Task ConnectAsync(IPEndPoint radioEndpoint, CancellationToken ct)
     {
         if (_sock is not null)
@@ -316,12 +356,28 @@ public sealed class Protocol2Client : IDisposable, IAsyncDisposable
 
         _radioEndpoint = new IPEndPoint(radioEndpoint.Address, 1024);
         var sock = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+
+        // Bind to the LOCAL interface on the radio's subnet rather than
+        // IPAddress.Any. On a multi-NIC host (Windows boxes with VPN/TAP/
+        // Hyper-V/Tailscale adapters) an Any-bound socket sends outbound
+        // command packets out the default-route interface — often Wi-Fi or a
+        // VPN tunnel, not the wired NIC on the radio's subnet. The radio then
+        // learns the wrong host address and streams DDC IQ to a dead end, so
+        // the panadapter stays blank even though hi-priority status still
+        // trickles in. Binding to the subnet-matching local IP is exactly what
+        // Thetis's "Via specific NIC" does. Linux single-NIC hosts resolve to
+        // Any anyway, which is why it "just works" there. Issue: Brick2 blank
+        // panadapter on multi-NIC Windows.
+        var localBind = FindLocalAddressForSubnet(radioEndpoint.Address) ?? IPAddress.Any;
         // Matched port convention — PC binds 1025, radio sends back with source
         // ports 1025/1026/1027/1035.. which we demux by fromaddr.
-        sock.Bind(new IPEndPoint(IPAddress.Any, 1025));
+        sock.Bind(new IPEndPoint(localBind, 1025));
         sock.ReceiveBufferSize = 1 << 20;
         _sock = sock;
-        _log.LogInformation("p2.connect radio={Radio} localPort=1025", radioEndpoint.Address);
+        _log.LogInformation(
+            "p2.connect radio={Radio} localBind={Local} localPort=1025",
+            radioEndpoint.Address,
+            localBind.Equals(IPAddress.Any) ? "ANY (no subnet match)" : localBind.ToString());
         return Task.CompletedTask;
     }
 
