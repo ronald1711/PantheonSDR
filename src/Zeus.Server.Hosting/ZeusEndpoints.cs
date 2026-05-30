@@ -247,7 +247,12 @@ public static class ZeusEndpoints
             }
         });
 
-        app.MapPost("/api/connect/p2", async (ConnectRequest req, DspPipelineService dsp, WdspWisdomInitializer wisdom, HttpContext ctx) =>
+        app.MapPost("/api/connect/p2", async (
+            ConnectRequest req,
+            DspPipelineService dsp,
+            WdspWisdomInitializer wisdom,
+            Zeus.Protocol2.Discovery.IRadioDiscovery p2disc,
+            HttpContext ctx) =>
         {
             log.LogInformation("api.connect.p2 endpoint={Ep} rate={Rate}", req.Endpoint, req.SampleRate);
 
@@ -270,6 +275,41 @@ public static class ZeusEndpoints
             // surface the real board kind instead of defaulting to OrionMkII
             // for every P2 connection (issue #171 — Brick2 is Hermes/0x01 on P2).
             var boardKind = req.BoardId is byte b ? MapBoardByte(b) : HpsdrBoardKind.Unknown;
+
+            // Manual connect (operator typed an IP, no discovery byte): send a
+            // unicast discovery probe to learn the real board. Without this the
+            // board stays Unknown → RxBaseDdc() falls back to G2's DDC2, but a
+            // Hermes-class board (Brick2) streams RX0 on DDC0 → no IQ, blank
+            // panadapter. Unicast routes correctly even on multi-NIC Windows
+            // where the broadcast sweep finds nothing. (deskHPSDR detects the
+            // Brick2 as Hermes / board-id 1 — src/new_discovery.c:381.)
+            if (boardKind == HpsdrBoardKind.Unknown)
+            {
+                try
+                {
+                    var probed = await p2disc.ProbeAsync(
+                        ipEndpoint.Address, TimeSpan.FromSeconds(1), ctx.RequestAborted);
+                    if (probed is not null)
+                    {
+                        boardKind = probed.Board;
+                        log.LogInformation(
+                            "api.connect.p2 probe detected board={Board} fw={Fw} → DDC{Ddc}",
+                            boardKind, probed.FirmwareString,
+                            Zeus.Protocol2.Protocol2Client.RxBaseDdc(boardKind));
+                    }
+                    else
+                    {
+                        log.LogWarning(
+                            "api.connect.p2 probe got no reply from {Ip}; board stays Unknown (DDC2). " +
+                            "If this is a Hermes-class radio (Brick2) the panadapter will be blank.",
+                            ipEndpoint.Address);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    log.LogWarning(ex, "api.connect.p2 board probe failed");
+                }
+            }
 
             try
             {

@@ -47,4 +47,17 @@ namespace Zeus.Protocol2.Discovery;
 public interface IRadioDiscovery
 {
     Task<IReadOnlyList<DiscoveredRadio>> DiscoverAsync(TimeSpan timeout, CancellationToken ct = default);
+
+    /// <summary>
+    /// Send a unicast discovery probe directly to <paramref name="target"/> and
+    /// return the radio's reply (board byte, firmware, etc.) or null on timeout.
+    ///
+    /// Unlike <see cref="DiscoverAsync"/>'s broadcast sweep, a unicast probe
+    /// routes correctly on multi-NIC Windows hosts where a socket bound to
+    /// INADDR_ANY only broadcasts out the default-route interface. Used by the
+    /// manual-connect path so an operator who types an IP still gets the real
+    /// board kind (and therefore correct DDC routing) instead of Unknown.
+    /// </summary>
+    Task<DiscoveredRadio?> ProbeAsync(
+        System.Net.IPAddress target, TimeSpan timeout, CancellationToken ct = default);
 }

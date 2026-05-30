@@ -238,6 +238,75 @@ public sealed class RadioDiscoveryService : IRadioDiscovery
         return targets;
     }
 
+    public async Task<DiscoveredRadio?> ProbeAsync(
+        IPAddress target, TimeSpan timeout, CancellationToken ct = default)
+    {
+        _log.LogInformation("p2.discovery.probe target={Target}", target);
+
+        using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+        socket.Bind(new IPEndPoint(IPAddress.Any, 0));
+
+        var packet = BuildDiscoveryPacket();
+        var dest = new IPEndPoint(target, HpsdrPort);
+
+        // Send a few unicast probes (the radio may be busy streaming and miss one).
+        for (var attempt = 0; attempt < SendAttempts; attempt++)
+        {
+            try
+            {
+                await socket.SendToAsync(packet, SocketFlags.None, dest, ct).ConfigureAwait(false);
+            }
+            catch (SocketException ex)
+            {
+                _log.LogWarning(ex, "p2.discovery.probe.send.error target={Target}", target);
+            }
+            await Task.Delay(SendGap, ct).ConfigureAwait(false);
+        }
+
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeoutCts.CancelAfter(timeout);
+
+        var receiveBuffer = new byte[ReceiveBufferSize];
+        var any = new IPEndPoint(IPAddress.Any, 0);
+
+        try
+        {
+            while (!timeoutCts.IsCancellationRequested)
+            {
+                SocketReceiveFromResult res;
+                try
+                {
+                    res = await socket.ReceiveFromAsync(
+                        receiveBuffer, SocketFlags.None, any, timeoutCts.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) { break; }
+                catch (SocketException ex)
+                {
+                    _log.LogWarning(ex, "p2.discovery.probe.socket.error");
+                    break;
+                }
+
+                var fromIp = ((IPEndPoint)res.RemoteEndPoint).Address;
+                var slice = new ReadOnlySpan<byte>(receiveBuffer, 0, res.ReceivedBytes);
+
+                if (ReplyParser.TryParse(slice, fromIp, out var radio) && fromIp.Equals(target))
+                {
+                    _log.LogInformation(
+                        "p2.discovery.probe.reply from={Ip} board={Board} fw={Firmware}",
+                        radio.Ip, radio.Board, radio.FirmwareString);
+                    return radio;
+                }
+            }
+        }
+        finally
+        {
+            try { socket.Shutdown(SocketShutdown.Both); } catch (SocketException) { }
+        }
+
+        _log.LogWarning("p2.discovery.probe.timeout target={Target}", target);
+        return null;
+    }
+
     private static byte[] BuildDiscoveryPacket()
     {
         var buf = new byte[DiscoveryPacketLength];
